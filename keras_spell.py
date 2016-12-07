@@ -22,8 +22,9 @@ import numpy as np
 from numpy.random import choice as random_choice, randint as random_randint, shuffle as random_shuffle, seed as random_seed, rand
 from numpy import zeros as np_zeros # pylint:disable=no-name-in-module
 
-from keras.models import Sequential, slice_X
-from keras.layers.core import Activation, TimeDistributedDense, RepeatVector, Dropout
+from keras.models import Sequential
+from keras.engine.training import slice_X
+from keras.layers import Activation, TimeDistributed, Dense, RepeatVector, Dropout
 from keras.layers import recurrent
 
 random_seed(123) # Reproducibility
@@ -46,7 +47,7 @@ NUMBER_OF_CHARS = 100 # 75
 CHARS = list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .")
 
 # Some cleanup:
-NORMALIZE_WHITESPACE_REGEX = re.compile(r'\s+', re.UNICODE)
+NORMALIZE_WHITESPACE_REGEX = re.compile(r'[^\S\n]+', re.UNICODE) # match all whitespace except newlines
 RE_DASH_FILTER = re.compile(r'[\-\˗\֊\‐\‑\‒\–\—\⁻\₋\−\﹣\－]', re.UNICODE)
 RE_APOSTROPHE_FILTER = re.compile(r'&#39;|[ʼ՚＇‘’‛❛❜ߴߵ`‵´ˊˋ{}{}{}{}{}{}{}{}{}]'.format(unichr(768), unichr(769), unichr(832),
                                                                                       unichr(833), unichr(2387), unichr(5151),
@@ -108,7 +109,7 @@ def vectorize(questions, answers, chars=None):
             y[i, j, ctable.char_indices[c]] = 1
 
     # Explicitly set apart 10% for validation data that we never train over
-    split_at = len(X) - len(X) / 10
+    split_at = int(len(X) - len(X) / 10)
     (X_train, X_val) = (slice_X(X, 0, split_at), slice_X(X, split_at))
     (y_train, y_val) = (y[:split_at], y[split_at:])
 
@@ -138,10 +139,10 @@ def generate_model(output_len, chars=None):
         model.add(Dropout(AMOUNT_OF_DROPOUT))
 
     # For each of step of the output sequence, decide which character should be chosen
-    model.add(TimeDistributedDense(len(chars), init=INITIALIZATION))
+    model.add(TimeDistributed(Dense(len(chars), init=INITIALIZATION)))
     model.add(Activation('softmax'))
 
-    model.compile(loss='categorical_crossentropy', optimizer='adam')
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
     return model
 
 
@@ -185,8 +186,7 @@ def iterate_training(model, X_train, y_train, X_val, y_val, ctable):
         print()
         print('-' * 50)
         print('Iteration', iteration)
-        model.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCHS_PER_ITERATION, validation_data=(X_val, y_val),
-                  show_accuracy=True)
+        model.fit(X_train, y_train, batch_size=BATCH_SIZE, nb_epoch=EPOCHS_PER_ITERATION, validation_data=(X_val, y_val))
         # Select 10 samples from the validation set at random so we can visualize errors
         for _ in range(10):
             ind = random_randint(0, len(X_val))
@@ -234,7 +234,7 @@ def read_news(_most_popular_chars_are=""):
     print("".join(sorted(most_popular_chars)))
     lines = [line.strip() for line in news.split('\n')]
     print("Read {} lines of input corpus".format(len(lines)))
-    lines = [line for line in lines if line and not bool(set(line) - most_popular_chars)][:7000] # size limit == me playing. Remove.
+    lines = [line for line in lines if line and not bool(set(line) - most_popular_chars)]
     print("Left with {} lines of input corpus".format(len(lines)))
     return lines
 
