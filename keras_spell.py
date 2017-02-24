@@ -8,16 +8,14 @@ Based in part on:
 Learn math - https://github.com/fchollet/keras/blob/master/examples/addition_rnn.py
 
 See https://medium.com/@majortal/deep-spelling-9ffef96a24f6#.2c9pu8nlm
-"""
-
 '''
 
 from __future__ import print_function, division, unicode_literals
 
-
 import os
 from collections import Counter
 import re
+import json
 import numpy as np
 from numpy.random import choice as random_choice, randint as random_randint, shuffle as random_shuffle, seed as random_seed, rand
 from numpy import zeros as np_zeros # pylint:disable=no-name-in-module
@@ -45,6 +43,12 @@ INVERTED = True
 AMOUNT_OF_NOISE = 0.2 / MAX_INPUT_LEN
 NUMBER_OF_CHARS = 100 # 75
 CHARS = list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .")
+
+DATA_FILES_PATH = "~/Downloads"
+NEWS_FILE_NAME = "news.2011.en.shuffled"
+CLEAN_NEWS_FILE_NAME = "clean_news.2011.en.shuffled"
+FILTERED_NEWS_FILE_NAME = "filtered_news.2011.en.shuffled"
+MOST_POPULAR_CHARS_FILE_NAME = "most_popular_chars.json"
 
 # Some cleanup:
 NORMALIZE_WHITESPACE_REGEX = re.compile(r'[^\S\n]+', re.UNICODE) # match all whitespace except newlines
@@ -221,21 +225,50 @@ def clean_text(text):
     print("RE_BASIC_CLEANER")
     return result
 
-
-def read_news(_most_popular_chars_are=""):
-    """Read the news corpus"""
-    print("reading news")
-    news = open(os.path.expanduser("~/downloads/training-monolingual/news.2011.en.shuffled")).read().decode('utf-8')
-    print("read news")
+def preprocesses_data1():
+    """Pre-process the data - step 1"""
+    print("Reading data:")
+    news = open(os.path.expanduser(os.path.join(DATA_FILES_PATH, NEWS_FILE_NAME))).read().decode('utf-8')
+    print("Read the data\nCleaning data:")
     news = clean_text(news)
-    print("cleaned text")
-    counter = Counter(news)
+    print("Cleaned the data\nWriting to file:")
+    with open(os.path.expanduser(os.path.join(DATA_FILES_PATH, CLEAN_NEWS_FILE_NAME)), "wb") as clean_news:
+        clean_news.write(news.encode("utf-8"))
+    print("Written to file")
+
+def preprocesses_data2():
+    """Pre-process the data - step 2"""
+    print("Reading data:")
+    data = open(os.path.expanduser(os.path.join(DATA_FILES_PATH, CLEAN_NEWS_FILE_NAME))).read().decode('utf-8')
+    print("Read.\nCounting characters:")
+    counter = Counter(data.replace("\n", ""))
+    print("Done.\nWriting to file:")
+    with open(os.path.expanduser(os.path.join(DATA_FILES_PATH, MOST_POPULAR_CHARS_FILE_NAME)), 'wb') as output_file:
+        output_file.write(json.dumps(counter))
+    print("Done")
+
+def preprocesses_data3():
+    """Pre-process the data - step 3"""
+    chars = json.loads(open(os.path.expanduser(os.path.join(DATA_FILES_PATH, MOST_POPULAR_CHARS_FILE_NAME))).read())
+    counter = Counter(chars)
     most_popular_chars = {key for key, _value in counter.most_common(NUMBER_OF_CHARS)}
+    print("The top {} chars are:".format(NUMBER_OF_CHARS))
     print("".join(sorted(most_popular_chars)))
-    lines = [line.strip() for line in news.split('\n')]
+    print("Reading data:")
+    data = open(os.path.expanduser(os.path.join(DATA_FILES_PATH, CLEAN_NEWS_FILE_NAME))).read().decode('utf-8')
+    print("Read.\nFiltering:")
+    lines = [line.strip() for line in data.split('\n')]
     print("Read {} lines of input corpus".format(len(lines)))
     lines = [line for line in lines if line and not bool(set(line) - most_popular_chars)]
     print("Left with {} lines of input corpus".format(len(lines)))
+    with open(os.path.expanduser(os.path.join(DATA_FILES_PATH, FILTERED_NEWS_FILE_NAME)), "wb") as output_file:
+        output_file.write("\n".join(lines).encode('utf-8'))
+
+def read_news():
+    """Read the news corpus"""
+    print("reading news")
+    lines = open(os.path.expanduser(os.path.join(DATA_FILES_PATH, FILTERED_NEWS_FILE_NAME))).read().decode('utf-8').split("\n")
+    print("read news")
     return lines
 
 
@@ -268,7 +301,7 @@ def generate_news_data(corpus):
             answers.append(answer)
         if random_randint(100000) == 8: # Show some progress
             print('.', end="")
-    print('suffle', end=" ")
+    print('shuffle', end=" ")
     random_shuffle(answers)
     print("Done")
     for answer_index, answer in enumerate(answers):
