@@ -26,9 +26,7 @@ from numpy.random import choice as random_choice, randint as random_randint, shu
 from numpy import zeros as np_zeros # pylint:disable=no-name-in-module
 
 from keras.models import Sequential, load_model
-from keras.engine.training import slice_X
-from keras.layers import Activation, TimeDistributed, Dense, RepeatVector, Dropout
-from keras.layers import recurrent
+from keras.layers import Activation, TimeDistributed, Dense, RepeatVector, Dropout, recurrent
 from keras.callbacks import Callback
 
 # Set a logger for the module
@@ -54,11 +52,11 @@ CONFIG.max_input_len = 60
 CONFIG.inverted = True
 
 # parameters for the training:
-CONFIG.number_of_iterations = 20000
-CONFIG.epochs_per_iteration = 500
 CONFIG.batch_size = 100 # As the model changes in size, play with the batch size to best fit the process in memory
-CONFIG.samples_per_epoch = 1000000
-CONFIG.number_of_validation_samples = 10000
+CONFIG.epochs = 500 # due to mini-epochs.
+CONFIG.steps_per_epoch = 1000 # This is a mini-epoch. Using News 2013 an epoch would need to be ~60K.
+CONFIG.validation_steps = 10
+CONFIG.number_of_iterations = 10
 #pylint:enable=attribute-defined-outside-init
 
 DIGEST = sha256(json.dumps(CONFIG.__dict__, sort_keys=True)).hexdigest()
@@ -170,6 +168,34 @@ def _vectorize(questions, answers, ctable):
                 pass # Padding
     return X, y
 
+def slice_X(X, start=None, stop=None):
+    """This takes an array-like, or a list of
+    array-likes, and outputs:
+        - X[start:stop] if X is an array-like
+        - [x[start:stop] for x in X] if X in a list
+    Can also work on list/array of indices: `slice_X(x, indices)`
+    # Arguments
+        start: can be an integer index (start index)
+            or a list/array of indices
+        stop: integer (stop index); should be None if
+            `start` was a list.
+    """
+    if isinstance(X, list):
+        if hasattr(start, '__len__'):
+            # hdf5 datasets only support list objects as indices
+            if hasattr(start, 'shape'):
+                start = start.tolist()
+            return [x[start] for x in X]
+        else:
+            return [x[start:stop] for x in X]
+    else:
+        if hasattr(start, '__len__'):
+            if hasattr(start, 'shape'):
+                start = start.tolist()
+            return X[start]
+        else:
+            return X[start:stop]
+
 def vectorize(questions, answers, chars=None):
     """Vectorize the questions and expected answers"""
     print('Vectorization...')
@@ -196,18 +222,18 @@ def generate_model(output_len, chars=None):
     # note: in a situation where your input sequences have a variable length,
     # use input_shape=(None, nb_feature).
     for layer_number in range(CONFIG.input_layers):
-        model.add(recurrent.LSTM(CONFIG.hidden_size, input_shape=(None, len(chars)), init=CONFIG.initialization,
+        model.add(recurrent.LSTM(CONFIG.hidden_size, input_shape=(None, len(chars)), kernel_initializer=CONFIG.initialization,
                                  return_sequences=layer_number + 1 < CONFIG.input_layers))
         model.add(Dropout(CONFIG.amount_of_dropout))
     # For the decoder's input, we repeat the encoded input for each time step
     model.add(RepeatVector(output_len))
     # The decoder RNN could be multiple layers stacked or a single layer
     for _ in range(CONFIG.output_layers):
-        model.add(recurrent.LSTM(CONFIG.hidden_size, return_sequences=True, init=CONFIG.initialization))
+        model.add(recurrent.LSTM(CONFIG.hidden_size, return_sequences=True, kernel_initializer=CONFIG.initialization))
         model.add(Dropout(CONFIG.amount_of_dropout))
 
     # For each of step of the output sequence, decide which character should be chosen
-    model.add(TimeDistributed(Dense(len(chars), init=CONFIG.initialization)))
+    model.add(TimeDistributed(Dense(len(chars), kernel_initializer=CONFIG.initialization)))
     model.add(Activation('softmax'))
 
     model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
@@ -314,11 +340,11 @@ def itarative_train(model):
      - To allow for finite RAM...
      - To allow infinite training data as the training noise is injected in runtime
     """
-    model.fit_generator(generator(NEWS_FILE_NAME_TRAIN), samples_per_epoch=CONFIG.samples_per_epoch,
-                        nb_epoch=CONFIG.epochs_per_iteration,
+    model.fit_generator(generator(NEWS_FILE_NAME_TRAIN), steps_per_epoch=CONFIG.steps_per_epoch,
+                        epochs=CONFIG.epochs,
                         verbose=1, callbacks=[ON_EPOCH_END_CALLBACK, ], validation_data=generator(NEWS_FILE_NAME_VALIDATE),
-                        nb_val_samples=CONFIG.number_of_validation_samples,
-                        class_weight=None, max_q_size=10, nb_worker=1,
+                        validation_steps=CONFIG.validation_steps,
+                        class_weight=None, max_q_size=10, workers=1,
                         pickle_safe=False, initial_epoch=0)
 
 
@@ -329,7 +355,7 @@ def iterate_training(model, X_train, y_train, X_val, y_val, ctable):
         print()
         print('-' * 50)
         print('Iteration', iteration)
-        model.fit(X_train, y_train, batch_size=CONFIG.batch_size, nb_epoch=CONFIG.epochs_per_iteration,
+        model.fit(X_train, y_train, batch_size=CONFIG.batch_size, epochs=CONFIG.epochs,
                   validation_data=(X_val, y_val))
         print_random_predictions(model, ctable, X_val, y_val)
 
@@ -433,18 +459,54 @@ def preprocesses_split_lines2():
     """
     LOGGER.info("Reading filtered data:")
     answers = set()
-    with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
-        for encoded_line in open(NEWS_FILE_NAME_FILTERED):
-            line = encoded_line.decode('utf-8')
-            if CONFIG.max_input_len >= len(line) > MIN_INPUT_LEN:
-                answers.add(line)
-                output_file.write(encoded_line)
+    for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+        line = encoded_line.decode('utf-8')
+        if CONFIG.max_input_len >= len(line) > MIN_INPUT_LEN:
+            answers.add(line)
     LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
     LOGGER.info("Here are some examples:")
     for answer in itertools.islice(answers, 10):
         LOGGER.info(answer)
     with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
         output_file.write("".join(answers).encode('utf-8'))
+
+def preprocesses_split_lines3():
+    """Preprocess the text by selecting only max n-grams
+    Alternative split.
+    """
+    LOGGER.info("Reading filtered data:")
+    answers = set()
+    for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+        line = encoded_line.decode('utf-8')
+        if line.count(" ") < 5:
+            answers.add(line)
+    LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
+    LOGGER.info("Here are some examples:")
+    for answer in itertools.islice(answers, 10):
+        LOGGER.info(answer)
+    with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
+        output_file.write("".join(answers).encode('utf-8'))
+
+def preprocesses_split_lines4():
+    """Preprocess the text by selecting only sentences with most-common words AND not too long
+    Alternative split.
+    """
+    LOGGER.info("Reading filtered data:")
+    from gensim.models.word2vec import Word2Vec
+    FILTERED_W2V = "fw2v.bin"
+    model = Word2Vec.load_word2vec_format(FILTERED_W2V, binary=True) # C text format
+    print(len(model.wv.index2word))
+#     answers = set()
+#     for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+#         line = encoded_line.decode('utf-8')
+#         if line.count(" ") < 5:
+#             answers.add(line)
+#     LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
+#     LOGGER.info("Here are some examples:")
+#     for answer in itertools.islice(answers, 10):
+#         LOGGER.info(answer)
+#     with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
+#         output_file.write("".join(answers).encode('utf-8'))
 
 def preprocess_partition_data():
     """Set asside data for validation"""
@@ -517,6 +579,7 @@ if __name__ == '__main__':
 #     preprocesses_data_filter()
 #     preprocesses_split_lines() --- Choose this step or:
 #     preprocesses_split_lines2()
+#     preprocesses_split_lines4()
 #     preprocess_partition_data()
 #     train_speller(os.path.join(DATA_FILES_FULL_PATH, "keras_spell_e15.h5"))
     train_speller()
