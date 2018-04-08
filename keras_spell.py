@@ -1,29 +1,13 @@
-# encoding: utf-8
-'''
-Created on Nov 26, 2015
-
-@author: tal
-
-Based in part on:
-Learn math - https://github.com/fchollet/keras/blob/master/examples/addition_rnn.py
-
-See https://medium.com/@majortal/deep-spelling-9ffef96a24f6#.2c9pu8nlm
-'''
-
-from __future__ import print_function, division, unicode_literals
-
 import os
 import errno
 from collections import Counter
-from hashlib import sha256
 import re
 import json
 import itertools
 import logging
 import requests
 import numpy as np
-from numpy.random import choice as random_choice, randint as random_randint, shuffle as random_shuffle, seed as random_seed, rand
-from numpy import zeros as np_zeros # pylint:disable=no-name-in-module
+import random
 
 from keras.models import Sequential, load_model
 from keras.layers import Activation, TimeDistributed, Dense, RepeatVector, Dropout, recurrent
@@ -34,7 +18,7 @@ LOGGER = logging.getLogger(__name__) # Every log will use the module name
 LOGGER.addHandler(logging.StreamHandler())
 LOGGER.setLevel(logging.DEBUG)
 
-random_seed(123) # Reproducibility
+random.seed(123)  # Reproducibility
 
 class Configuration(object):
     """Dump stuff here"""
@@ -57,9 +41,6 @@ CONFIG.epochs = 500 # due to mini-epochs.
 CONFIG.steps_per_epoch = 1000 # This is a mini-epoch. Using News 2013 an epoch would need to be ~60K.
 CONFIG.validation_steps = 10
 CONFIG.number_of_iterations = 10
-#pylint:enable=attribute-defined-outside-init
-
-DIGEST = sha256(json.dumps(CONFIG.__dict__, sort_keys=True)).hexdigest()
 
 # Parameters for the dataset
 MIN_INPUT_LEN = 5
@@ -67,8 +48,8 @@ AMOUNT_OF_NOISE = 0.2 / CONFIG.max_input_len
 CHARS = list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ .")
 PADDING = "☕"
 
-DATA_FILES_PATH = "~/Downloads/data"
-DATA_FILES_FULL_PATH = os.path.expanduser(DATA_FILES_PATH)
+DATA_FILES_PATH = "data"
+DATA_FILES_FULL_PATH = os.path.join(os.path.dirname(__file__), DATA_FILES_PATH)
 DATA_FILES_URL = "http://www.statmt.org/wmt14/training-monolingual-news-crawl/news.2013.en.shuffled.gz"
 NEWS_FILE_NAME_COMPRESSED = os.path.join(DATA_FILES_FULL_PATH, "news.2013.en.shuffled.gz") # 1.1 GB
 NEWS_FILE_NAME_ENGLISH = "news.2013.en.shuffled"
@@ -84,9 +65,9 @@ SAVED_MODEL_FILE_NAME = os.path.join(DATA_FILES_FULL_PATH, "keras_spell_e{}.h5")
 # Some cleanup:
 NORMALIZE_WHITESPACE_REGEX = re.compile(r'[^\S\n]+', re.UNICODE) # match all whitespace except newlines
 RE_DASH_FILTER = re.compile(r'[\-\˗\֊\‐\‑\‒\–\—\⁻\₋\−\﹣\－]', re.UNICODE)
-RE_APOSTROPHE_FILTER = re.compile(r'&#39;|[ʼ՚＇‘’‛❛❜ߴߵ`‵´ˊˋ{}{}{}{}{}{}{}{}{}]'.format(unichr(768), unichr(769), unichr(832),
-                                                                                      unichr(833), unichr(2387), unichr(5151),
-                                                                                      unichr(5152), unichr(65344), unichr(8242)),
+RE_APOSTROPHE_FILTER = re.compile(r'&#39;|[ʼ՚＇‘’‛❛❜ߴߵ`‵´ˊˋ{}{}{}{}{}{}{}{}{}]'.format(chr(768), chr(769), chr(832),
+                                                                                      chr(833), chr(2387), chr(5151),
+                                                                                      chr(5152), chr(65344), chr(8242)),
                                   re.UNICODE)
 RE_LEFT_PARENTH_FILTER = re.compile(r'[\(\[\{\⁽\₍\❨\❪\﹙\（]', re.UNICODE)
 RE_RIGHT_PARENTH_FILTER = re.compile(r'[\)\]\}\⁾\₎\❩\❫\﹚\）]', re.UNICODE)
@@ -98,51 +79,54 @@ RE_BASIC_CLEANER = re.compile(r'[^\w\s{}{}]'.format(re.escape(ALLOWED_CURRENCIES
 
 def download_the_news_data():
     """Download the news data"""
-    LOGGER.info("Downloading")
-    try:
-        os.makedirs(os.path.dirname(NEWS_FILE_NAME_COMPRESSED))
-    except OSError as exception:
-        if exception.errno != errno.EEXIST:
-            raise
-    with open(NEWS_FILE_NAME_COMPRESSED, "wb") as output_file:
-        response = requests.get(DATA_FILES_URL, stream=True)
-        total_length = response.headers.get('content-length')
-        downloaded = percentage = 0
-        print("»"*100)
-        total_length = int(total_length)
-        for data in response.iter_content(chunk_size=4096):
-            downloaded += len(data)
-            output_file.write(data)
-            new_percentage = 100 * downloaded // total_length
-            if new_percentage > percentage:
-                print("☑", end="")
-                percentage = new_percentage
-    print()
+    if not os.path.isfile(NEWS_FILE_NAME_COMPRESSED):
+        LOGGER.info("Downloading")
+        try:
+            os.makedirs(os.path.dirname(NEWS_FILE_NAME_COMPRESSED))
+        except OSError as exception:
+            if exception.errno != errno.EEXIST:
+                raise
+        with open(NEWS_FILE_NAME_COMPRESSED, "wb") as output_file:
+            response = requests.get(DATA_FILES_URL, stream=True)
+            total_length = response.headers.get('content-length')
+            downloaded = percentage = 0
+            print("»"*100)
+            total_length = int(total_length)
+            for data in response.iter_content(chunk_size=4096):
+                downloaded += len(data)
+                output_file.write(data)
+                new_percentage = 100 * downloaded // total_length
+                if new_percentage > percentage:
+                    print("☑", end="")
+                    percentage = new_percentage
+        print()
 
 def uncompress_data():
     """Uncompress the data files"""
     import gzip
-    with gzip.open(NEWS_FILE_NAME_COMPRESSED, 'rb') as compressed_file:
-        with open(NEWS_FILE_NAME_COMPRESSED[:-3], 'wb') as outfile:
-            outfile.write(compressed_file.read())
+    out_filename = NEWS_FILE_NAME_COMPRESSED[:-3]
+    if not os.path.isfile(out_filename):
+        with gzip.open(NEWS_FILE_NAME_COMPRESSED, 'rb') as compressed_file:
+            with open(out_filename, 'wb') as outfile:
+                outfile.write(compressed_file.read())
 
 def add_noise_to_string(a_string, amount_of_noise):
     """Add some artificial spelling mistakes to the string"""
-    if rand() < amount_of_noise * len(a_string):
+    if random() < amount_of_noise * len(a_string):
         # Replace a character with a random character
-        random_char_position = random_randint(len(a_string))
-        a_string = a_string[:random_char_position] + random_choice(CHARS[:-1]) + a_string[random_char_position + 1:]
-    if rand() < amount_of_noise * len(a_string):
+        random_char_position = random.randint(len(a_string))
+        a_string = a_string[:random_char_position] + random.choice(CHARS[:-1]) + a_string[random_char_position + 1:]
+    if random() < amount_of_noise * len(a_string):
         # Delete a character
-        random_char_position = random_randint(len(a_string))
+        random_char_position = random.randint(len(a_string))
         a_string = a_string[:random_char_position] + a_string[random_char_position + 1:]
-    if len(a_string) < CONFIG.max_input_len and rand() < amount_of_noise * len(a_string):
+    if len(a_string) < CONFIG.max_input_len and random() < amount_of_noise * len(a_string):
         # Add a random character
-        random_char_position = random_randint(len(a_string))
-        a_string = a_string[:random_char_position] + random_choice(CHARS[:-1]) + a_string[random_char_position:]
-    if rand() < amount_of_noise * len(a_string):
+        random_char_position = random.randint(len(a_string))
+        a_string = a_string[:random_char_position] + random.choice(CHARS[:-1]) + a_string[random_char_position:]
+    if random() < amount_of_noise * len(a_string):
         # Transpose 2 characters
-        random_char_position = random_randint(len(a_string) - 1)
+        random_char_position = random.randint(len(a_string) - 1)
         a_string = (a_string[:random_char_position] + a_string[random_char_position + 1] + a_string[random_char_position] +
                     a_string[random_char_position + 2:])
     return a_string
@@ -150,16 +134,16 @@ def add_noise_to_string(a_string, amount_of_noise):
 def _vectorize(questions, answers, ctable):
     """Vectorize the data as numpy arrays"""
     len_of_questions = len(questions)
-    X = np_zeros((len_of_questions, CONFIG.max_input_len, ctable.size), dtype=np.bool)
-    for i in xrange(len(questions)):
+    X = np.zeros((len_of_questions, CONFIG.max_input_len, ctable.size), dtype=np.bool)
+    for i in range(len(questions)):
         sentence = questions.pop()
         for j, c in enumerate(sentence):
             try:
                 X[i, j, ctable.char_indices[c]] = 1
             except KeyError:
                 pass # Padding
-    y = np_zeros((len_of_questions, CONFIG.max_input_len, ctable.size), dtype=np.bool)
-    for i in xrange(len(answers)):
+    y = np.zeros((len_of_questions, CONFIG.max_input_len, ctable.size), dtype=np.bool)
+    for i in range(len(answers)):
         sentence = answers.pop()
         for j, c in enumerate(sentence):
             try:
@@ -266,7 +250,7 @@ class CharacterTable(object):
 
     def encode(self, C, maxlen):
         """Encode as one-hot"""
-        X = np_zeros((maxlen, len(self.chars)), dtype=np.bool) # pylint:disable=no-member
+        X = np.zeros((maxlen, len(self.chars)), dtype=np.bool) # pylint:disable=no-member
         for i, c in enumerate(C):
             X[i, self.char_indices[c]] = 1
         return X
@@ -288,9 +272,9 @@ def generator(file_name):
     while True:
         with open(file_name) as answers:
             for answer in answers:
-                batch_of_answers.append(answer.strip().decode('utf-8'))
+                batch_of_answers.append(answer.strip())
                 if len(batch_of_answers) == CONFIG.batch_size:
-                    random_shuffle(batch_of_answers)
+                    np.random.shuffle(batch_of_answers)
                     batch_of_questions = []
                     for answer_index, answer in enumerate(batch_of_answers):
                         question, answer = generate_question(answer)
@@ -306,8 +290,8 @@ def print_random_predictions(model, ctable, X_val, y_val):
     """Select 10 samples from the validation set at random so we can visualize errors"""
     print()
     for _ in range(10):
-        ind = random_randint(0, len(X_val))
-        rowX, rowy = X_val[np.array([ind])], y_val[np.array([ind])] # pylint:disable=no-member
+        ind = random.randint(0, len(X_val))
+        rowX, rowy = X_val[np.asarray([ind])], y_val[np.asarray([ind])] # pylint:disable=no-member
         preds = model.predict_classes(rowX, verbose=0)
         q = ctable.decode(rowX[0])
         correct = ctable.decode(rowy[0])
@@ -369,31 +353,31 @@ def clean_text(text):
     result = RE_BASIC_CLEANER.sub('', result)
     return result
 
+
 def preprocesses_data_clean():
     """Pre-process the data - step 1 - cleanup"""
-    with open(NEWS_FILE_NAME_CLEAN, "wb") as clean_data:
-        for line in open(NEWS_FILE_NAME):
-            decoded_line = line.decode('utf-8')
-            cleaned_line = clean_text(decoded_line)
-            encoded_line = cleaned_line.encode("utf-8")
-            clean_data.write(encoded_line + b"\n")
+    if not os.path.isfile(NEWS_FILE_NAME_CLEAN):
+        with open(NEWS_FILE_NAME_CLEAN, "wt") as clean_data:
+            for line in open(NEWS_FILE_NAME):
+                clean_data.write(clean_text(line) + "\n")
+
 
 def preprocesses_data_analyze_chars():
     """Pre-process the data - step 2 - analyze the characters"""
-    counter = Counter()
-    LOGGER.info("Reading data:")
-    for line in open(NEWS_FILE_NAME_CLEAN):
-        decoded_line = line.decode('utf-8')
-        counter.update(decoded_line)
-#     data = open(NEWS_FILE_NAME_CLEAN).read().decode('utf-8')
-#     LOGGER.info("Read.\nCounting characters:")
-#     counter = Counter(data.replace("\n", ""))
-    LOGGER.info("Done.\nWriting to file:")
-    with open(CHAR_FREQUENCY_FILE_NAME, 'wb') as output_file:
-        output_file.write(json.dumps(counter))
-    most_popular_chars = {key for key, _value in counter.most_common(CONFIG.number_of_chars)}
-    LOGGER.info("The top %s chars are:", CONFIG.number_of_chars)
-    LOGGER.info("".join(sorted(most_popular_chars)))
+    if not os.path.isfile(CHAR_FREQUENCY_FILE_NAME):
+        counter = Counter()
+        LOGGER.info("Reading data:")
+        for line in open(NEWS_FILE_NAME_CLEAN):
+            counter.update(line)
+    #     data = open(NEWS_FILE_NAME_CLEAN).read().decode('utf-8')
+    #     LOGGER.info("Read.\nCounting characters:")
+    #     counter = Counter(data.replace("\n", ""))
+        LOGGER.info("Done.\nWriting to file:")
+        with open(CHAR_FREQUENCY_FILE_NAME, 'wt') as output_file:
+            output_file.write(json.dumps(counter))
+        most_popular_chars = {key for key, _value in counter.most_common(CONFIG.number_of_chars)}
+        LOGGER.info("The top %s chars are:", CONFIG.number_of_chars)
+        LOGGER.info("".join(sorted(most_popular_chars)))
 
 def read_top_chars():
     """Read the top chars we saved to file"""
@@ -404,19 +388,20 @@ def read_top_chars():
 
 def preprocesses_data_filter():
     """Pre-process the data - step 3 - filter only sentences with the right chars"""
-    most_popular_chars = read_top_chars()
-    LOGGER.info("Reading and filtering data:")
-    with open(NEWS_FILE_NAME_FILTERED, "wb") as output_file:
-        for line in open(NEWS_FILE_NAME_CLEAN):
-            decoded_line = line.decode('utf-8')
-            if decoded_line and not bool(set(decoded_line) - most_popular_chars):
-                output_file.write(line)
-    LOGGER.info("Done.")
+    if not os.path.isfile(NEWS_FILE_NAME_FILTERED):
+        most_popular_chars = read_top_chars()
+        LOGGER.info("Reading and filtering data:")
+        with open(NEWS_FILE_NAME_FILTERED, "wt") as output_file:
+            for line in open(NEWS_FILE_NAME_CLEAN):
+                decoded_line = line
+                if decoded_line and not bool(set(decoded_line) - most_popular_chars):
+                    output_file.write(line)
+        LOGGER.info("Done.")
 
 def read_filtered_data():
     """Read the filtered data corpus"""
     LOGGER.info("Reading filtered data:")
-    lines = open(NEWS_FILE_NAME_FILTERED).read().decode('utf-8').split("\n")
+    lines = open(NEWS_FILE_NAME_FILTERED).read().split("\n")
     LOGGER.info("Read filtered data - %s lines", len(lines))
     return lines
 
@@ -429,97 +414,103 @@ def preprocesses_split_lines():
       Important NGRAMs are cut (though given enough data, that might be moot).
     I do this to enable batch-learning by padding to a fixed length.
     """
-    LOGGER.info("Reading filtered data:")
-    answers = set()
-    with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
-        for _line in open(NEWS_FILE_NAME_FILTERED):
-            line = _line.decode('utf-8')
-            while len(line) > MIN_INPUT_LEN:
-                if len(line) <= CONFIG.max_input_len:
-                    answer = line
-                    line = ""
-                else:
-                    space_location = line.rfind(" ", MIN_INPUT_LEN, CONFIG.max_input_len - 1)
-                    if space_location > -1:
-                        answer = line[:space_location]
-                        line = line[len(answer) + 1:]
+    if not os.path.isfile(NEWS_FILE_NAME_SPLIT):
+        LOGGER.info("Reading filtered data:")
+        answers = set()
+        with open(NEWS_FILE_NAME_SPLIT, "wt") as output_file:
+            for _line in open(NEWS_FILE_NAME_FILTERED):
+                line = _line
+                while len(line) > MIN_INPUT_LEN:
+                    if len(line) <= CONFIG.max_input_len:
+                        answer = line
+                        line = ""
                     else:
-                        space_location = line.rfind(" ") # no limits this time
-                        if space_location == -1:
-                            break # we are done with this line
+                        space_location = line.rfind(" ", MIN_INPUT_LEN, CONFIG.max_input_len - 1)
+                        if space_location > -1:
+                            answer = line[:space_location]
+                            line = line[len(answer) + 1:]
                         else:
-                            line = line[space_location + 1:]
-                            continue
-                answers.add(answer)
-                output_file.write(answer.encode('utf-8') + b"\n")
+                            space_location = line.rfind(" ") # no limits this time
+                            if space_location == -1:
+                                break # we are done with this line
+                            else:
+                                line = line[space_location + 1:]
+                                continue
+                    answers.add(answer)
+                    output_file.write(answer + "\n")
 
 def preprocesses_split_lines2():
     """Preprocess the text by splitting the lines between min-length and max_length
     Alternative split.
     """
-    LOGGER.info("Reading filtered data:")
-    answers = set()
-    for encoded_line in open(NEWS_FILE_NAME_FILTERED):
-        line = encoded_line.decode('utf-8')
-        if CONFIG.max_input_len >= len(line) > MIN_INPUT_LEN:
-            answers.add(line)
-    LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
-    LOGGER.info("Here are some examples:")
-    for answer in itertools.islice(answers, 10):
-        LOGGER.info(answer)
-    with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
-        output_file.write("".join(answers).encode('utf-8'))
+    if not os.path.isfile(NEWS_FILE_NAME_SPLIT):
+        LOGGER.info("Reading filtered data:")
+        answers = set()
+        for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+            line = encoded_line
+            if CONFIG.max_input_len >= len(line) > MIN_INPUT_LEN:
+                answers.add(line)
+        LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
+        LOGGER.info("Here are some examples:")
+        for answer in itertools.islice(answers, 10):
+            LOGGER.info(answer)
+        with open(NEWS_FILE_NAME_SPLIT, "wt") as output_file:
+            output_file.write("".join(answers))
+
 
 def preprocesses_split_lines3():
     """Preprocess the text by selecting only max n-grams
     Alternative split.
     """
-    LOGGER.info("Reading filtered data:")
-    answers = set()
-    for encoded_line in open(NEWS_FILE_NAME_FILTERED):
-        line = encoded_line.decode('utf-8')
-        if line.count(" ") < 5:
-            answers.add(line)
-    LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
-    LOGGER.info("Here are some examples:")
-    for answer in itertools.islice(answers, 10):
-        LOGGER.info(answer)
-    with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
-        output_file.write("".join(answers).encode('utf-8'))
+    if not os.path.isfile(NEWS_FILE_NAME_SPLIT):
+        LOGGER.info("Reading filtered data:")
+        answers = set()
+        for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+            line = encoded_line
+            if line.count(" ") < 5:
+                answers.add(line)
+        LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
+        LOGGER.info("Here are some examples:")
+        for answer in itertools.islice(answers, 10):
+            LOGGER.info(answer)
+        with open(NEWS_FILE_NAME_SPLIT, "wt") as output_file:
+            output_file.write("".join(answers))
 
-def preprocesses_split_lines4():
-    """Preprocess the text by selecting only sentences with most-common words AND not too long
-    Alternative split.
-    """
-    LOGGER.info("Reading filtered data:")
-    from gensim.models.word2vec import Word2Vec
-    FILTERED_W2V = "fw2v.bin"
-    model = Word2Vec.load_word2vec_format(FILTERED_W2V, binary=True) # C text format
-    print(len(model.wv.index2word))
-#     answers = set()
-#     for encoded_line in open(NEWS_FILE_NAME_FILTERED):
-#         line = encoded_line.decode('utf-8')
-#         if line.count(" ") < 5:
-#             answers.add(line)
-#     LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
-#     LOGGER.info("Here are some examples:")
-#     for answer in itertools.islice(answers, 10):
-#         LOGGER.info(answer)
-#     with open(NEWS_FILE_NAME_SPLIT, "wb") as output_file:
-#         output_file.write("".join(answers).encode('utf-8'))
+
+# def preprocesses_split_lines4():
+#     """Preprocess the text by selecting only sentences with most-common words AND not too long
+#     Alternative split.
+#     """
+#     LOGGER.info("Reading filtered data:")
+#     from gensim.models.word2vec import Word2Vec
+#     FILTERED_W2V = "fw2v.bin"
+#     model = Word2Vec.load_word2vec_format(FILTERED_W2V, binary=True) # C text format
+#     print(len(model.wv.index2word))
+# #     answers = set()
+# #     for encoded_line in open(NEWS_FILE_NAME_FILTERED):
+# #         line = encoded_line.decode('utf-8')
+# #         if line.count(" ") < 5:
+# #             answers.add(line)
+# #     LOGGER.info("There are %s 'answers' (sub-sentences)", len(answers))
+# #     LOGGER.info("Here are some examples:")
+# #     for answer in itertools.islice(answers, 10):
+# #         LOGGER.info(answer)
+# #     with open(NEWS_FILE_NAME_SPLIT, "wt") as output_file:
+# #         output_file.write("".join(answers))
 
 def preprocess_partition_data():
     """Set asside data for validation"""
-    answers = open(NEWS_FILE_NAME_SPLIT).read().decode('utf-8').split("\n")
-    print('shuffle', end=" ")
-    random_shuffle(answers)
-    print("Done")
-    # Explicitly set apart 10% for validation data that we never train over
-    split_at = len(answers) - len(answers) // 10
-    with open(NEWS_FILE_NAME_TRAIN, "wb") as output_file:
-        output_file.write("\n".join(answers[:split_at]).encode('utf-8'))
-    with open(NEWS_FILE_NAME_VALIDATE, "wb") as output_file:
-        output_file.write("\n".join(answers[split_at:]).encode('utf-8'))
+    if not os.path.isfile(NEWS_FILE_NAME_TRAIN):
+        answers = open(NEWS_FILE_NAME_SPLIT).read().split("\n")
+        print('shuffle', end=" ")
+        np.random.shuffle(answers)
+        print("Done")
+        # Explicitly set apart 10% for validation data that we never train over
+        split_at = len(answers) - len(answers) // 10
+        with open(NEWS_FILE_NAME_TRAIN, "wt") as output_file:
+            output_file.write("\n".join(answers[:split_at]))
+        with open(NEWS_FILE_NAME_VALIDATE, "wt") as output_file:
+            output_file.write("\n".join(answers[split_at:]))
 
 
 def generate_question(answer):
@@ -536,13 +527,13 @@ def generate_news_data():
     answers = open(NEWS_FILE_NAME_SPLIT).read().decode('utf-8').split("\n")
     questions = []
     print('shuffle', end=" ")
-    random_shuffle(answers)
+    np.random.shuffle(answers)
     print("Done")
     for answer_index, answer in enumerate(answers):
         question, answer = generate_question(answer)
         answers[answer_index] = answer
         assert len(answer) == CONFIG.max_input_len
-        if random_randint(100000) == 8: # Show some progress
+        if random.randint(100000) == 8: # Show some progress
             print (len(answers))
             print ("answer:   '{}'".format(answer))
             print ("question: '{}'".format(question))
@@ -572,14 +563,17 @@ def train_speller(from_file=None):
     itarative_train(model)
 
 if __name__ == '__main__':
-#     download_the_news_data()
-#     uncompress_data()
-#     preprocesses_data_clean()
-#     preprocesses_data_analyze_chars()
-#     preprocesses_data_filter()
-#     preprocesses_split_lines() --- Choose this step or:
+    download_the_news_data()
+    uncompress_data()
+    preprocesses_data_clean()
+    preprocesses_data_analyze_chars()
+    preprocesses_data_filter()
+    preprocesses_split_lines()
 #     preprocesses_split_lines2()
 #     preprocesses_split_lines4()
-#     preprocess_partition_data()
-#     train_speller(os.path.join(DATA_FILES_FULL_PATH, "keras_spell_e15.h5"))
-    train_speller()
+    preprocess_partition_data()
+    existing_model = os.path.join(DATA_FILES_FULL_PATH, "keras_spell_e15.h5")
+    if os.path.isfile(existing_model):
+        train_speller(existing_model)
+    else:
+        train_speller()
