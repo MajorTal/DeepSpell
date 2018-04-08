@@ -606,7 +606,7 @@ if __name__ == '__main__':
     for model in previous_models:
         epoch = int(model.split("_")[-1].split(".")[0][1:])
         if epoch > latest_model_number:
-            latest_model = epoch
+            latest_model_number = epoch
             last_model = model
 
     # run with previous model or anew?
