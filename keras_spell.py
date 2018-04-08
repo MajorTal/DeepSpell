@@ -126,7 +126,7 @@ def add_noise_to_string(a_string, amount_of_noise):
         a_string = a_string[:random_char_position] + random.choice(CHARS[:-1]) + a_string[random_char_position:]
     if random.random() < amount_of_noise * len(a_string):
         # Transpose 2 characters
-        random_char_position = random.randint(0, len(a_string) - 1)
+        random_char_position = random.randint(0, len(a_string) - 2)
         a_string = (a_string[:random_char_position] + a_string[random_char_position + 1] + a_string[random_char_position] +
                     a_string[random_char_position + 2:])
     return a_string
