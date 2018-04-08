@@ -18,25 +18,25 @@ logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
 
 random.seed(123)  # Reproducibility
 
+
 class Configuration(object):
     """Dump stuff here"""
 
+
 CONFIG = Configuration()
-#pylint:disable=attribute-defined-outside-init
-# Parameters for the model:
 CONFIG.input_layers = 2
 CONFIG.output_layers = 2
 CONFIG.amount_of_dropout = 0.2
 CONFIG.hidden_size = 500
-CONFIG.initialization = "he_normal" # : Gaussian initialization scaled by fan-in (He et al., 2014)
+CONFIG.initialization = "he_normal"  # : Gaussian initialization scaled by fan-in (He et al., 2014)
 CONFIG.number_of_chars = 100
 CONFIG.max_input_len = 60
 CONFIG.inverted = True
 
 # parameters for the training:
-CONFIG.batch_size = 100 # As the model changes in size, play with the batch size to best fit the process in memory
-CONFIG.epochs = 500 # due to mini-epochs.
-CONFIG.steps_per_epoch = 1000 # This is a mini-epoch. Using News 2013 an epoch would need to be ~60K.
+CONFIG.batch_size = 100  # As the model changes in size, play with the batch size to best fit the process in memory
+CONFIG.epochs = 500  # due to mini-epochs.
+CONFIG.steps_per_epoch = 1000  # This is a mini-epoch. Using News 2013 an epoch would need to be ~60K.
 CONFIG.validation_steps = 10
 CONFIG.number_of_iterations = 10
 
@@ -131,6 +131,7 @@ def add_noise_to_string(a_string, amount_of_noise):
                     a_string[random_char_position + 2:])
     return a_string
 
+
 def _vectorize(questions, answers, ctable):
     """Vectorize the data as numpy arrays"""
     len_of_questions = len(questions)
@@ -151,6 +152,7 @@ def _vectorize(questions, answers, ctable):
             except KeyError:
                 pass # Padding
     return X, y
+
 
 def slice_X(X, start=None, stop=None):
     """This takes an array-like, or a list of
@@ -179,6 +181,7 @@ def slice_X(X, start=None, stop=None):
             return X[start]
         else:
             return X[start:stop]
+
 
 def vectorize(questions, answers, chars=None):
     """Vectorize the questions and expected answers"""
@@ -261,6 +264,7 @@ class CharacterTable(object):
             X = X.argmax(axis=-1)
         return ''.join(self.indices_char[x] for x in X if x)
 
+
 def generator(file_name):
     """Returns a tuple (inputs, targets)
     All arrays should contain the same number of samples.
@@ -285,6 +289,7 @@ def generator(file_name):
                     X, y = _vectorize(batch_of_questions, batch_of_answers, ctable)
                     yield X, y
                     batch_of_answers = []
+
 
 def print_random_predictions(model, ctable, X_val, y_val):
     """Select 10 samples from the validation set at random so we can visualize errors"""
@@ -316,10 +321,11 @@ class OnEpochEndCallback(Callback):
         print_random_predictions(self.model, ctable, X_val, y_val)
         self.model.save(SAVED_MODEL_FILE_NAME.format(epoch))
 
+
 ON_EPOCH_END_CALLBACK = OnEpochEndCallback()
 
 
-def itarative_train(model):
+def iterative_train(model):
     """
     Iterative training of the model
      - To allow for finite RAM...
@@ -343,6 +349,7 @@ def iterate_training(model, X_train, y_train, X_val, y_val, ctable):
         model.fit(X_train, y_train, batch_size=CONFIG.batch_size, epochs=CONFIG.epochs,
                   validation_data=(X_val, y_val))
         print_random_predictions(model, ctable, X_val, y_val)
+
 
 def clean_text(text):
     """Clean the text - remove unwanted chars, fold punctuation etc."""
@@ -573,7 +580,7 @@ def train_speller(from_file=None):
     else:
         logging.info("training a new model")
         model = generate_model(CONFIG.max_input_len, chars=read_top_chars())
-    itarative_train(model)
+    iterative_train(model)
 
 
 if __name__ == '__main__':
