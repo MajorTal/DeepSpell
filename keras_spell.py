@@ -112,21 +112,21 @@ def uncompress_data():
 
 def add_noise_to_string(a_string, amount_of_noise):
     """Add some artificial spelling mistakes to the string"""
-    if random() < amount_of_noise * len(a_string):
+    if random.random() < amount_of_noise * len(a_string):
         # Replace a character with a random character
-        random_char_position = random.randint(len(a_string))
+        random_char_position = random.randint(0, len(a_string))
         a_string = a_string[:random_char_position] + random.choice(CHARS[:-1]) + a_string[random_char_position + 1:]
-    if random() < amount_of_noise * len(a_string):
+    if random.random() < amount_of_noise * len(a_string):
         # Delete a character
-        random_char_position = random.randint(len(a_string))
+        random_char_position = random.randint(0, len(a_string))
         a_string = a_string[:random_char_position] + a_string[random_char_position + 1:]
-    if len(a_string) < CONFIG.max_input_len and random() < amount_of_noise * len(a_string):
+    if len(a_string) < CONFIG.max_input_len and random.random() < amount_of_noise * len(a_string):
         # Add a random character
-        random_char_position = random.randint(len(a_string))
+        random_char_position = random.randint(0, len(a_string))
         a_string = a_string[:random_char_position] + random.choice(CHARS[:-1]) + a_string[random_char_position:]
-    if random() < amount_of_noise * len(a_string):
+    if random.random() < amount_of_noise * len(a_string):
         # Transpose 2 characters
-        random_char_position = random.randint(len(a_string) - 1)
+        random_char_position = random.randint(0, len(a_string) - 1)
         a_string = (a_string[:random_char_position] + a_string[random_char_position + 1] + a_string[random_char_position] +
                     a_string[random_char_position + 2:])
     return a_string
@@ -358,6 +358,7 @@ def clean_text(text):
 def preprocesses_data_clean():
     """Pre-process the data - step 1 - cleanup"""
     if not os.path.isfile(NEWS_FILE_NAME_CLEAN):
+        logging.info("preprocesses_data_clean")
         with open(NEWS_FILE_NAME_CLEAN, "wt") as clean_data:
             for line in open(NEWS_FILE_NAME):
                 clean_data.write(clean_text(line) + "\n")
@@ -528,10 +529,11 @@ def generate_question(answer):
     answer += PADDING * (CONFIG.max_input_len - len(answer))
     return question, answer
 
+
 def generate_news_data():
     """Generate some news data"""
     print ("Generating Data")
-    answers = open(NEWS_FILE_NAME_SPLIT).read().decode('utf-8').split("\n")
+    answers = open(NEWS_FILE_NAME_SPLIT).read().split("\n")
     questions = []
     print('shuffle', end=" ")
     np.random.shuffle(answers)
@@ -540,7 +542,7 @@ def generate_news_data():
         question, answer = generate_question(answer)
         answers[answer_index] = answer
         assert len(answer) == CONFIG.max_input_len
-        if random.randint(100000) == 8: # Show some progress
+        if random.randint(0, 100000) == 8:  # Show some progress
             print (len(answers))
             print ("answer:   '{}'".format(answer))
             print ("question: '{}'".format(question))
@@ -575,7 +577,7 @@ def train_speller(from_file=None):
 
 
 if __name__ == '__main__':
-    download_the_news_data()
+    download_the_news_data()  # download data/news.2013.en.shuffled.gz if dne
     uncompress_data()
     preprocesses_data_clean()
     preprocesses_data_analyze_chars()
