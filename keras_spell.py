@@ -596,8 +596,21 @@ if __name__ == '__main__':
 #     preprocesses_split_lines2()
 #     preprocesses_split_lines4()
     preprocess_partition_data()
-    existing_model = os.path.join(DATA_FILES_FULL_PATH, "keras_spell_e15.h5")
-    if os.path.isfile(existing_model):
-        train_speller(existing_model)
+
+
+    # get the latest epoch of any previous runs and use it as a starting model if it exists
+    previous_models = [os.path.join(DATA_FILES_FULL_PATH, f) for f in os.listdir(DATA_FILES_FULL_PATH)
+                       if os.path.isfile(os.path.join(DATA_FILES_FULL_PATH, f)) and f.startswith("keras_spell_e")]
+    last_model = None
+    latest_model_number = -1
+    for model in previous_models:
+        epoch = int(model.split("_")[-1].split(".")[0][1:])
+        if epoch > latest_model_number:
+            latest_model = epoch
+            last_model = model
+
+    # run with previous model or anew?
+    if last_model is not None and os.path.isfile(last_model):
+        train_speller(last_model)
     else:
         train_speller()
