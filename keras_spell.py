@@ -294,20 +294,23 @@ def generator(file_name):
 def print_random_predictions(model, ctable, X_val, y_val):
     """Select 10 samples from the validation set at random so we can visualize errors"""
     print()
-    for _ in range(10):
-        ind = random.randint(0, len(X_val))
-        rowX, rowy = X_val[np.asarray([ind])], y_val[np.asarray([ind])] # pylint:disable=no-member
-        preds = model.predict_classes(rowX, verbose=0)
-        q = ctable.decode(rowX[0])
-        correct = ctable.decode(rowy[0])
-        guess = ctable.decode(preds[0], calc_argmax=False)
-        if CONFIG.inverted:
-            print('Q', q[::-1]) # inverted back!
-        else:
-            print('Q', q)
-        print('A', correct)
-        print(Colors.green + '☑' + Colors.close if correct == guess else Colors.red + '☒' + Colors.close, guess)
-        print('---')
+    try:
+        for _ in range(10):
+            ind = random.randint(0, len(X_val))
+            rowX, rowy = X_val[np.asarray([ind])], y_val[np.asarray([ind])] # pylint:disable=no-member
+            preds = model.predict_classes(rowX, verbose=0)
+            q = ctable.decode(rowX[0])
+            correct = ctable.decode(rowy[0])
+            guess = ctable.decode(preds[0], calc_argmax=False)
+            if CONFIG.inverted:
+                print('Q', q[::-1]) # inverted back!
+            else:
+                print('Q', q)
+            print('A', correct)
+            print(Colors.green + '☑' + Colors.close if correct == guess else Colors.red + '☒' + Colors.close, guess)
+            print('---')
+    except Exception:
+        pass
     print()
 
 
