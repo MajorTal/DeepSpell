@@ -1,0 +1,5 @@
+numpy
+keras
+tensorflow
+requests
+h5py
